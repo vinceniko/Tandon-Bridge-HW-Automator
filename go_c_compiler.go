@@ -46,7 +46,7 @@ func New(inDir string, bin string) *StudentDir {
 
 // BuildIt builds the cpp file located in the hw directory
 func (hw *HW) BuildIt(compiler, inDir, bin string) {
-	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.CppFile, ".cpp"))
+	hw.BuildFile = strings.TrimSuffix(hw.CppFile, ".cpp")
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
 	err := hw.Build.Run()
@@ -56,9 +56,9 @@ func (hw *HW) BuildIt(compiler, inDir, bin string) {
 }
 
 // RunIt runs the binary in bin that was created by build it
-func (hw *HW) RunIt(inDir string) {
-	hw.Run = exec.Command(hw.BuildFile)
-	hw.Run.Dir = inDir
+func (hw *HW) RunIt(bin string) {
+	hw.Run = exec.Command("./" + hw.BuildFile)
+	hw.Run.Dir = bin
 	hw.Run.Stdout = os.Stdout
 	hw.Run.Stderr = os.Stderr
 	hw.Run.Stdin = os.Stdin
@@ -69,7 +69,7 @@ func (hw *HW) RunIt(inDir string) {
 }
 
 // Exec runs a goroutine which builds all the files in StudentDir independently from running the files
-func (sd *StudentDir) Exec(compiler, inDir, bin string) {
+func (sd *StudentDir) Exec(compiler string) {
 	go func() { // this function builds the code and signals the channel so that the built files can be run
 		i := 0
 		for _, file := range sd.Dir {
@@ -79,7 +79,7 @@ func (sd *StudentDir) Exec(compiler, inDir, bin string) {
 					*hw = &HW{CppFile: file.Name()}
 				}
 
-				(*hw).BuildIt(compiler, inDir, bin)
+				(*hw).BuildIt(compiler, sd.Path, sd.Bin)
 
 				i++
 				sd.Next <- struct{}{}
@@ -97,7 +97,7 @@ func (sd *StudentDir) Exec(compiler, inDir, bin string) {
 				}
 				fmt.Println("\n" + (*hw).CppFile)
 
-				(*hw).RunIt(inDir)
+				(*hw).RunIt(sd.Bin)
 
 				i++
 			}
@@ -116,7 +116,7 @@ func CreateBinDir(inDir string) string {
 		}
 	}
 
-	bin := path.Join("bin")
+	bin := path.Join(inDir, "bin")
 	err = os.Mkdir(bin, 0666)
 	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
 		log.Fatalln(err)
@@ -141,13 +141,12 @@ func main() {
 	var (
 		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/hw4"
 		compiler = "g++"
-		bin      string
 	)
 
-	bin = CreateBinDir(inDir)
+	bin := CreateBinDir(inDir)
 
 	sd := New(inDir, bin)
-	sd.Exec(compiler, inDir, bin)
+	sd.Exec(compiler)
 
 	//
 
