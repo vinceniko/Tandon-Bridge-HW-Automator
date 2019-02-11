@@ -11,16 +11,10 @@ import (
 	"strings"
 )
 
-// default vars
-var (
-	inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/hw4"
-	compiler = "g++"
-	bin      string
-)
-
 // StudentDir represents the hw directory
 type StudentDir struct {
 	Path string
+	Bin  string // Path is the main working directory
 	Dir  []os.FileInfo
 	HWs  []*HW
 	Next chan struct{}
@@ -35,23 +29,23 @@ type HW struct {
 }
 
 // New creates inits a new StudentDir by assigning the hw dir path, reading the files of the dir, and creating an array of length n where n is the number of files in the dir
-func New() *StudentDir {
+func New(inDir string, bin string) *StudentDir {
 	var err error
 
-	sd := StudentDir{Path: inDir}
+	sd := StudentDir{Path: inDir, Bin: bin}
 
 	sd.Dir, err = ioutil.ReadDir(inDir)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	sd.HWs = make([]*HW, len(sd.Dir))
+	sd.HWs = make([]*HW, len(sd.Dir)-1) // sd.HWs will be less than or equal to the len of sd.Dir (whether there are other filetypes in the dir). -1 excludes the bin directory
 	sd.Next = make(chan struct{})
 
 	return &sd
 }
 
 // BuildIt builds the cpp file located in the hw directory
-func (hw *HW) BuildIt() {
+func (hw *HW) BuildIt(compiler, inDir, bin string) {
 	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.CppFile, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
@@ -62,7 +56,7 @@ func (hw *HW) BuildIt() {
 }
 
 // RunIt runs the binary in bin that was created by build it
-func (hw *HW) RunIt() {
+func (hw *HW) RunIt(inDir string) {
 	hw.Run = exec.Command(hw.BuildFile)
 	hw.Run.Dir = inDir
 	hw.Run.Stdout = os.Stdout
@@ -75,8 +69,8 @@ func (hw *HW) RunIt() {
 }
 
 // Exec runs a goroutine which builds all the files in StudentDir independently from running the files
-func (sd *StudentDir) Exec() {
-	go func() {
+func (sd *StudentDir) Exec(compiler, inDir, bin string) {
+	go func() { // this function builds the code and signals the channel so that the built files can be run
 		i := 0
 		for _, file := range sd.Dir {
 			if path.Ext(file.Name()) == ".cpp" {
@@ -85,7 +79,7 @@ func (sd *StudentDir) Exec() {
 					*hw = &HW{CppFile: file.Name()}
 				}
 
-				(*hw).BuildIt()
+				(*hw).BuildIt(compiler, inDir, bin)
 
 				i++
 				sd.Next <- struct{}{}
@@ -103,7 +97,7 @@ func (sd *StudentDir) Exec() {
 				}
 				fmt.Println("\n" + (*hw).CppFile)
 
-				(*hw).RunIt()
+				(*hw).RunIt(inDir)
 
 				i++
 			}
@@ -112,7 +106,7 @@ func (sd *StudentDir) Exec() {
 }
 
 // CreateBinDir creates the binary directory in the folder where the hws are located if it isnt already there
-func CreateBinDir() {
+func CreateBinDir(inDir string) string {
 	var err error
 
 	if info, _ := os.Stat(inDir); !info.IsDir() {
@@ -122,11 +116,13 @@ func CreateBinDir() {
 		}
 	}
 
-	bin = path.Join("bin")
+	bin := path.Join("bin")
 	err = os.Mkdir(bin, 0666)
 	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
 		log.Fatalln(err)
 	}
+
+	return bin
 }
 
 // GetNewLine checks for newline from StdIn
@@ -140,14 +136,20 @@ func GetNewLine() {
 	}
 }
 
-// init initializes the channel and creates the Bin directory
-func init() {
-	CreateBinDir()
-}
-
 func main() {
-	sd := New()
-	sd.Exec()
+	// default vars
+	var (
+		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/hw4"
+		compiler = "g++"
+		bin      string
+	)
+
+	bin = CreateBinDir(inDir)
+
+	sd := New(inDir, bin)
+	sd.Exec(compiler, inDir, bin)
+
+	//
 
 	GetNewLine()
 }
