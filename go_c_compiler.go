@@ -3,25 +3,26 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
 // StudentDir represents the hw directory
 type StudentDir struct {
-	Path string
-	Bin  string // Path is the main working directory
-	Dir  []os.FileInfo
-	HWs  []*HW
-	Next chan struct{}
+	Path  string
+	Bin   string // Path is the main working directory
+	HWs   []*HW
+	Next  chan struct{}
+	Close chan struct{}
 }
 
 // HW has fields for accessing HW for building and running
 type HW struct {
+	Name      string
 	CppFile   string // path for the CppFile relativ to StudentDir.Dir
 	BuildFile string // path for the BuildFile relative to StudentDir.Dir
 	Build     *exec.Cmd
@@ -29,24 +30,54 @@ type HW struct {
 }
 
 // New creates inits a new StudentDir by assigning the hw dir path, reading the files of the dir, and creating an array of length n where n is the number of files in the dir
-func New(inDir string, bin string) *StudentDir {
+func New(compiler string, inDir string, bin string, q string) *StudentDir {
 	var err error
 
 	sd := StudentDir{Path: inDir, Bin: bin}
-
-	sd.Dir, err = ioutil.ReadDir(inDir)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	sd.HWs = make([]*HW, len(sd.Dir)-1) // sd.HWs will be less than or equal to the len of sd.Dir (whether there are other filetypes in the dir). -1 excludes the bin directory
+	sd.HWs = make([]*HW, 0)
 	sd.Next = make(chan struct{})
+	sd.Close = make(chan struct{})
+	go func() {
+		err = filepath.Walk(inDir, func(sPath string, info os.FileInfo, err error) error {
+			if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
+				hw := &HW{CppFile: sPath, Name: info.Name()}
+				sd.HWs = append(sd.HWs, hw)
+
+				(*hw).BuildIt(compiler, sd.Path, sd.Bin)
+
+				sd.Next <- struct{}{}
+			}
+
+			return nil
+		})
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		close(sd.Close)
+	}()
+
+	i := 0
+	for true {
+		select {
+		case <-sd.Next:
+			hw := &sd.HWs[i]
+			fmt.Println("\n" + (*hw).Name)
+
+			(*hw).RunIt(sd.Bin)
+
+			i++
+		case <-sd.Close:
+			return nil
+		}
+	}
 
 	return &sd
 }
 
 // BuildIt builds the cpp file located in the hw directory
 func (hw *HW) BuildIt(compiler, inDir, bin string) {
-	hw.BuildFile = path.Join("bin", strings.TrimSuffix(hw.CppFile, ".cpp"))
+	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.Name, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
 	err := hw.Build.Run()
@@ -65,43 +96,6 @@ func (hw *HW) RunIt(bin string) {
 	err := hw.Run.Run()
 	if err != nil {
 		log.Fatalln(2, err)
-	}
-}
-
-// Exec runs a goroutine which builds all the files in StudentDir independently from running the files
-func (sd *StudentDir) Exec(compiler string) {
-	go func() { // this function builds the code and signals the channel so that the built files can be run
-		i := 0
-		for _, file := range sd.Dir {
-			if path.Ext(file.Name()) == ".cpp" {
-				hw := &sd.HWs[i]
-				if *hw == nil {
-					*hw = &HW{CppFile: file.Name()}
-				}
-
-				(*hw).BuildIt(compiler, sd.Path, sd.Bin)
-
-				i++
-				sd.Next <- struct{}{}
-			}
-		}
-	}()
-	i := 0
-	for _, file := range sd.Dir {
-		if path.Ext(file.Name()) == ".cpp" {
-			select {
-			case <-sd.Next:
-				hw := &sd.HWs[i]
-				if *hw == nil {
-					*hw = &HW{CppFile: file.Name()}
-				}
-				fmt.Println("\n" + (*hw).CppFile)
-
-				(*hw).RunIt(sd.Bin)
-
-				i++
-			}
-		}
 	}
 }
 
@@ -139,14 +133,14 @@ func GetNewLine() {
 func main() {
 	// default vars
 	var (
-		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/hw4"
+		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/homework #4"
 		compiler = "g++"
+		q        = "q6"
 	)
 
 	bin := CreateBinDir(inDir)
 
-	sd := New(inDir, bin)
-	sd.Exec(compiler)
+	_ = New(compiler, inDir, bin, q)
 
 	//
 
