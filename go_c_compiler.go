@@ -46,7 +46,7 @@ func New(inDir string, bin string) *StudentDir {
 
 // BuildIt builds the cpp file located in the hw directory
 func (hw *HW) BuildIt(compiler, inDir, bin string) {
-	hw.BuildFile = strings.TrimSuffix(hw.CppFile, ".cpp")
+	hw.BuildFile = path.Join("bin", strings.TrimSuffix(hw.CppFile, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
 	err := hw.Build.Run()
@@ -57,8 +57,8 @@ func (hw *HW) BuildIt(compiler, inDir, bin string) {
 
 // RunIt runs the binary in bin that was created by build it
 func (hw *HW) RunIt(bin string) {
-	hw.Run = exec.Command("./" + hw.BuildFile)
-	hw.Run.Dir = bin
+	hw.Run = exec.Command(hw.BuildFile)
+	hw.Run.Dir = hw.Build.Dir
 	hw.Run.Stdout = os.Stdout
 	hw.Run.Stderr = os.Stderr
 	hw.Run.Stdin = os.Stdin
