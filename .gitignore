@@ -1,3 +1,5 @@
 test/*
 bin
 .DS_Store
+debug
+.vscode
