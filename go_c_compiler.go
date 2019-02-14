@@ -37,8 +37,28 @@ func New(compiler string, inDir string, bin string, q string) *StudentDir {
 	sd.HWs = make([]*HW, 0)
 	sd.Next = make(chan struct{})
 	sd.Close = make(chan struct{})
-	go func() {
-		err = filepath.Walk(inDir, func(sPath string, info os.FileInfo, err error) error {
+			if startStudent != "" && foundDir == "" { // begin here
+				dirs, err := ioutil.ReadDir(sd.Path)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				for _, dir := range dirs {
+					if strings.Contains(dir.Name(), startStudent) {
+						foundDir = path.Join(sd.Path, dir.Name()) // find the dir name we need
+
+						return nil
+					}
+				}
+
+				log.Fatalln("NetID Not Found")
+			} else if startStudent != "" && currPath != foundDir {
+				if info, _ := os.Stat(currPath); currPath != sd.Path && info.IsDir() { // if currPath is not the root and is a dir
+					return filepath.SkipDir
+				}
+				return nil // a non dir file, continue searching (if we have a file in the root dir, we don't want to skip)
+			} else if startStudent != "" && currPath == foundDir { // located the student dir we need
+				startStudent = ""
+			} // executes the below once found
 			if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
 				hw := &HW{CppFile: sPath, Name: info.Name()}
 				sd.HWs = append(sd.HWs, hw)
@@ -159,11 +179,12 @@ func main() {
 		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/homework #4"
 		compiler = "g++"
 		q        = "q6"
+		student  = ""
 	)
 
 	bin := CreateBinDir(inDir)
 
-	_ = New(compiler, inDir, bin, q)
+	sd.Exec(compiler, student, q)
 
 	//
 
