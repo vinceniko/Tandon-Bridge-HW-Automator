@@ -66,13 +66,23 @@ func New(compiler string, inDir string, bin string, q string) *StudentDir {
 
 			(*hw).RunIt(sd.Bin)
 
-			i++
-		case <-sd.Close:
-			return nil
+// CopyCpp copies the cpp file to the cppdir
+func CopyCpp(hw *HW, cppDir string) {
+	src, err := os.Open(hw.CppFile)
+	if err != nil {
+		log.Fatalln(err)
 		}
-	}
+	defer src.Close()
 
-	return &sd
+	dst, err := os.Create(path.Join(cppDir, hw.Name))
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		log.Fatalln(err)
+	}
 }
 
 // BuildIt builds the cpp file located in the hw directory
@@ -80,6 +90,8 @@ func (hw *HW) BuildIt(compiler, inDir, bin string) {
 	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.Name, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
+	go CopyCpp(hw, cppDir) // run in goroutine to prevent i/o delay
+}
 // ProcReadForwarder is used to forward read bytes to the intended reader unless it is a kill command such as 'q', which kills the underlying process
 type ProcReadForwarder struct {
 	KillChar byte
