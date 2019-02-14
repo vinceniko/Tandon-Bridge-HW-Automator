@@ -59,13 +59,16 @@ func New(compiler string, inDir string, bin string, q string) *StudentDir {
 			} else if startStudent != "" && currPath == foundDir { // located the student dir we need
 				startStudent = ""
 			} // executes the below once found
+
 			if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
-				hw := &HW{CppFile: sPath, Name: info.Name()}
+				hw := &HW{CppFile: currPath, Name: info.Name()}
 				sd.HWs = append(sd.HWs, hw)
 
-				(*hw).BuildIt(compiler, sd.Path, sd.Bin)
+				hw.BuildIt(compiler, sd.Path, sd.BinDir, sd.CppDir)
 
-				sd.Next <- struct{}{}
+				sd.Next <- hw // produce builds
+
+				return filepath.SkipDir
 			}
 
 			return nil
@@ -80,11 +83,17 @@ func New(compiler string, inDir string, bin string, q string) *StudentDir {
 	i := 0
 	for true {
 		select {
-		case <-sd.Next:
-			hw := &sd.HWs[i]
+		case hw := <-sd.Next: // consume builds
 			fmt.Println("\n" + (*hw).Name)
 
-			(*hw).RunIt(sd.Bin)
+			hw.RunIt(sd.BinDir)
+
+			fmt.Println()
+		case <-sd.Close: // nothing left to consume
+			fmt.Println("\nDONE")
+			return
+		}
+	}
 
 // CopyCpp copies the cpp file to the cppdir
 func CopyCpp(hw *HW, cppDir string) {
