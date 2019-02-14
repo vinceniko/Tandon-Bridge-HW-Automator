@@ -80,10 +80,21 @@ func (hw *HW) BuildIt(compiler, inDir, bin string) {
 	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.Name, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
-	err := hw.Build.Run()
-	if err != nil {
-		log.Fatalln(1, err)
+// ProcReadForwarder is used to forward read bytes to the intended reader unless it is a kill command such as 'q', which kills the underlying process
+type ProcReadForwarder struct {
+	KillChar byte
+	Proc     **os.Process // a ptr to the field in exec.Command which points to a Process; since the field gets populated after creating PF
+	In       io.Reader    // the reading source we forward to
+}
+
+/// Read allows ProcReadForwarder to implement the Reader interface
+// it is used to scan for a escape character which kills the running process without killing the go process
+// all other scanned bytes are forwarded to the internal reader as normal
+func (pf ProcReadForwarder) Read(p []byte) (n int, err error) {
+	if p[0] == pf.KillChar && p[1] == 10 { // if the bytes read == 'q'. 10 is the null character
+		return 0, (*pf.Proc).Kill()
 	}
+	return pf.In.Read(p) // forward to the internal Reader
 }
 
 // RunIt runs the binary in bin that was created by build it
