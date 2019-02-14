@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -13,30 +15,40 @@ import (
 
 // StudentDir represents the hw directory
 type StudentDir struct {
-	Path  string
-	Bin   string // Path is the main working directory
-	HWs   []*HW
-	Next  chan struct{}
-	Close chan struct{}
+	Path   string
+	CppDir string
+	BinDir string // Path is the main working directory
+	HWs    []*HW
+	Next   chan *HW
+	Close  chan struct{}
 }
 
 // HW has fields for accessing HW for building and running
 type HW struct {
-	Name      string
-	CppFile   string // path for the CppFile relativ to StudentDir.Dir
-	BuildFile string // path for the BuildFile relative to StudentDir.Dir
+	Name      string // name of the binary
+	CppFile   string // path for the CppFile relative to StudentDir.Path
+	BuildFile string // path for the BuildFile relative to StudentDir.Path
 	Build     *exec.Cmd
 	Run       *exec.Cmd
 }
 
-// New creates inits a new StudentDir by assigning the hw dir path, reading the files of the dir, and creating an array of length n where n is the number of files in the dir
-func New(compiler string, inDir string, bin string, q string) *StudentDir {
+// New inits the StudentDir
+func New(inDir, bin, cppDir string) *StudentDir {
+	sd := StudentDir{Path: inDir, BinDir: bin, CppDir: cppDir}
+	sd.HWs = make([]*HW, 0)
+	sd.Next = make(chan *HW)
+	sd.Close = make(chan struct{})
+
+	return &sd
+}
+
+// Exec runs and builds
+func (sd *StudentDir) Exec(compiler string, startStudent string, q string) {
 	var err error
 
-	sd := StudentDir{Path: inDir, Bin: bin}
-	sd.HWs = make([]*HW, 0)
-	sd.Next = make(chan struct{})
-	sd.Close = make(chan struct{})
+	foundDir := ""
+	go func() { // build producer
+		err = filepath.Walk(sd.Path, func(currPath string, info os.FileInfo, err error) error {
 			if startStudent != "" && foundDir == "" { // begin here
 				dirs, err := ioutil.ReadDir(sd.Path)
 				if err != nil {
@@ -80,8 +92,7 @@ func New(compiler string, inDir string, bin string, q string) *StudentDir {
 		close(sd.Close)
 	}()
 
-	i := 0
-	for true {
+	for true { // build consumer
 		select {
 		case hw := <-sd.Next: // consume builds
 			fmt.Println("\n" + (*hw).Name)
@@ -94,13 +105,14 @@ func New(compiler string, inDir string, bin string, q string) *StudentDir {
 			return
 		}
 	}
+}
 
 // CopyCpp copies the cpp file to the cppdir
 func CopyCpp(hw *HW, cppDir string) {
 	src, err := os.Open(hw.CppFile)
 	if err != nil {
 		log.Fatalln(err)
-		}
+	}
 	defer src.Close()
 
 	dst, err := os.Create(path.Join(cppDir, hw.Name))
@@ -115,12 +127,17 @@ func CopyCpp(hw *HW, cppDir string) {
 }
 
 // BuildIt builds the cpp file located in the hw directory
-func (hw *HW) BuildIt(compiler, inDir, bin string) {
+func (hw *HW) BuildIt(compiler, inDir, bin, cppDir string) {
 	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.Name, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
 	hw.Build.Dir = inDir
+	if err := hw.Build.Run(); err != nil {
+		fmt.Printf("Error Building %s; Err:%s\n", hw.Name, err) // TODO: save failed to compile files in a list
+	}
+
 	go CopyCpp(hw, cppDir) // run in goroutine to prevent i/o delay
 }
+
 // ProcReadForwarder is used to forward read bytes to the intended reader unless it is a kill command such as 'q', which kills the underlying process
 type ProcReadForwarder struct {
 	KillChar byte
@@ -142,12 +159,12 @@ func (pf ProcReadForwarder) Read(p []byte) (n int, err error) {
 func (hw *HW) RunIt(bin string) {
 	hw.Run = exec.Command(hw.BuildFile)
 	hw.Run.Dir = hw.Build.Dir
+	pf := ProcReadForwarder{'q', &hw.Run.Process, os.Stdin}
 	hw.Run.Stdout = os.Stdout
 	hw.Run.Stderr = os.Stderr
-	hw.Run.Stdin = os.Stdin
-	err := hw.Run.Run()
-	if err != nil {
-		log.Fatalln(2, err)
+	hw.Run.Stdin = pf
+	if err := hw.Run.Run(); err != nil {
+		fmt.Printf("Error Running %s; Err:%s", hw.Name, err) // TODO: save files with runtime erros in a list
 	}
 }
 
@@ -163,8 +180,7 @@ func CreateBinDir(inDir string) string {
 	}
 
 	bin := path.Join(inDir, "bin")
-	err = os.Mkdir(bin, 0666)
-	if err != nil && err.(*os.PathError).Err.Error() != "file exists" {
+	if err = os.Mkdir(bin, 0666); err != nil && err.(*os.PathError).Err.Error() != "file exists" {
 		log.Fatalln(err)
 	}
 
@@ -187,9 +203,7 @@ func CreateCppDir(inDir string) string {
 func GetNewLine() {
 	bio := bufio.NewReader(os.Stdin)
 
-	// in case you need a string which contains the newline
-	_, err := bio.ReadString('\n')
-	if err != nil {
+	if _, err := bio.ReadString('\n'); err != nil {
 		log.Fatalln(err)
 	}
 }
@@ -197,17 +211,19 @@ func GetNewLine() {
 func main() {
 	// default vars
 	var (
-		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/homework #4"
+		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/homework #4_accelerated"
 		compiler = "g++"
 		q        = "q6"
 		student  = ""
 	)
 
 	bin := CreateBinDir(inDir)
+	cppDir := CreateCppDir(inDir)
 
+	sd := New(inDir, bin, cppDir)
 	sd.Exec(compiler, student, q)
 
 	//
 
-	GetNewLine()
+	GetNewLine() // press return once more to finish execution
 }
