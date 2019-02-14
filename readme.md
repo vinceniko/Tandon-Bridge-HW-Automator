@@ -16,10 +16,11 @@ It is written in Golang and uses concurrency to run the code synchronously while
 
 ## TODO
 
-* match both 'q' and 'Q' in the file name
+* Match both 'q' and 'Q' in the file name
+* Build and run multiple questions per student
 * parse command line flags
-* open textediter with student's code while running
-* test whether the walking of dirs is in a deterministic order as to preserve consistency
+* Open textediter with student's code while running
+* Test whether the walking of dirs is in a deterministic order as to preserve consistency
 
 ### Maybe
 
