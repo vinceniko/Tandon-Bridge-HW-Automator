@@ -162,6 +162,18 @@ func CreateBinDir(inDir string) string {
 	return bin
 }
 
+// CreateCppDir creates the binary directory in the folder where the hws are located if it isnt already there
+func CreateCppDir(inDir string) string {
+	var err error
+
+	cppDir := path.Join(inDir, "cpps")
+	if err = os.Mkdir(cppDir, 0666); err != nil && err.(*os.PathError).Err.Error() != "file exists" {
+		log.Fatalln(err)
+	}
+
+	return cppDir
+}
+
 // GetNewLine checks for newline from StdIn
 func GetNewLine() {
 	bio := bufio.NewReader(os.Stdin)
