@@ -6,6 +6,7 @@ It is written in Golang and uses concurrency to run the code synchronously while
 
 ## Current Features
 
+* CLI integration
 * Walk the "Download All" directory from NYU Clases to find the chosen student cpp hw
 * Build the HW and save the binary in a subdir
 * Copy cpp files into a subdir (will be removed if texteditor feature is implemented)
@@ -16,11 +17,9 @@ It is written in Golang and uses concurrency to run the code synchronously while
 
 ## TODO
 
-* Match both 'q' and 'Q' in the file name
-* Build and run multiple questions per student
-* parse command line flags
-* Open textediter with student's code while running
-* Test whether the walking of dirs is in a deterministic order as to preserve consistency
+* Match both 'q' and 'Q' in the file name (from NYU Classes; deprecated at this point)
+* Build and run multiple questions per student (from NYU Classes; deprecated at this point)
+* Open texteditor with student's code while running
 
 ### Maybe
 
