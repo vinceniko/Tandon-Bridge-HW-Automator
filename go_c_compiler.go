@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -21,6 +22,7 @@ type StudentDir struct {
 	HWs    []*HW
 	Next   chan *HW
 	Close  chan struct{}
+	Source string
 }
 
 // HW has fields for accessing HW for building and running
@@ -33,8 +35,8 @@ type HW struct {
 }
 
 // New inits the StudentDir
-func New(inDir, bin, cppDir string) *StudentDir {
-	sd := StudentDir{Path: inDir, BinDir: bin, CppDir: cppDir}
+func New(inDir, bin, cppDir, source string) *StudentDir {
+	sd := StudentDir{Path: inDir, BinDir: bin, CppDir: cppDir, Source: source}
 	sd.HWs = make([]*HW, 0)
 	sd.Next = make(chan *HW)
 	sd.Close = make(chan struct{})
@@ -43,36 +45,63 @@ func New(inDir, bin, cppDir string) *StudentDir {
 }
 
 // Exec runs and builds
-func (sd *StudentDir) Exec(compiler string, startStudent string, q string) {
+func (sd *StudentDir) Exec(compiler, startStudent, q string, times int) {
 	var err error
 
-	foundDir := ""
 	go func() { // build producer
 		err = filepath.Walk(sd.Path, func(currPath string, info os.FileInfo, err error) error {
-			if startStudent != "" && foundDir == "" { // begin here
-				dirs, err := ioutil.ReadDir(sd.Path)
-				if err != nil {
-					log.Fatalln(err)
-				}
-				for _, dir := range dirs {
-					if strings.Contains(dir.Name(), startStudent) {
-						foundDir = path.Join(sd.Path, dir.Name()) // find the dir name we need
-
-						return nil
+			switch sd.Source {
+			case "nyuclasses":
+				foundDir := ""
+				if startStudent != "" && foundDir == "" { // begin here
+					dirs, err := ioutil.ReadDir(sd.Path)
+					if err != nil {
+						log.Fatalln(err)
 					}
-				}
+					for _, dir := range dirs {
+						if strings.Contains(dir.Name(), startStudent) {
+							foundDir = path.Join(sd.Path, dir.Name()) // find the dir name we need
 
-				log.Fatalln("NetID Not Found")
-			} else if startStudent != "" && currPath != foundDir {
-				if info, _ := os.Stat(currPath); currPath != sd.Path && info.IsDir() { // if currPath is not the root and is a dir
+							return nil
+						}
+					}
+
+					log.Fatalln("NetID Not Found")
+				} else if startStudent != "" && currPath != foundDir {
+					if info, _ := os.Stat(currPath); currPath != sd.Path && info.IsDir() { // if currPath is not the root and is a dir
+						return filepath.SkipDir
+					}
+					return nil // a non dir file, continue searching (if we have a file in the root dir, we don't want to skip)
+				} else if startStudent != "" && currPath == foundDir { // located the student dir we need
+					startStudent = ""
+				} // executes the below once found
+			default:
+				if currPath == sd.BinDir || currPath == sd.CppDir {
 					return filepath.SkipDir
 				}
-				return nil // a non dir file, continue searching (if we have a file in the root dir, we don't want to skip)
-			} else if startStudent != "" && currPath == foundDir { // located the student dir we need
-				startStudent = ""
-			} // executes the below once found
+			}
 
-			if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
+			// general matcher
+			if matchedFile := strings.Contains(info.Name(), startStudent); startStudent != "" && !matchedFile {
+				return nil
+			} else if matchedFile {
+				startStudent = ""
+			}
+
+			if q != "" {
+				if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
+					hw := &HW{CppFile: currPath, Name: info.Name()}
+					sd.HWs = append(sd.HWs, hw)
+
+					hw.BuildIt(compiler, sd.Path, sd.BinDir, sd.CppDir)
+
+					sd.Next <- hw // produce builds
+
+					return filepath.SkipDir
+				}
+
+				return nil // not the right file
+			} else if path.Ext(info.Name()) == ".cpp" {
 				hw := &HW{CppFile: currPath, Name: info.Name()}
 				sd.HWs = append(sd.HWs, hw)
 
@@ -97,7 +126,9 @@ func (sd *StudentDir) Exec(compiler string, startStudent string, q string) {
 		case hw := <-sd.Next: // consume builds
 			fmt.Println("\n" + (*hw).Name)
 
-			hw.RunIt(sd.BinDir)
+			for i := 0; i < times; i++ {
+				hw.RunIt(sd.BinDir)
+			}
 
 			fmt.Println()
 		case <-sd.Close: // nothing left to consume
@@ -210,18 +241,33 @@ func GetNewLine() {
 
 func main() {
 	// default vars
+	// var (
+	// 	inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/HW5/mine/Q6_accelerated"
+	// 	compiler = "g++"
+	// 	q        = "q6"
+	// 	student  = "mw"
+	// 	source   = "gradescope"
+	// )
 	var (
-		inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/c_compiler/test/homework #4_accelerated"
-		compiler = "g++"
-		q        = "q6"
-		student  = ""
+		inDir    = flag.String("inDir", "", "Dir with the student files")
+		compiler = flag.String("compiler", "g++", "Compiler Command")
+		q        = flag.String("q", "", "Question number in the form of \"q<n>\"")
+		student  = flag.String("student", "", "Student to begin iteration with")
+		source   = flag.String("source", "gradescope", "Student files download source")
+		times    = flag.Int("times", 1, "Times to execute each program")
 	)
+	flag.Parse()
+	for _, required := range []*string{inDir} {
+		if *required == "" {
+			log.Fatalln("Var must be set")
+		}
+	}
 
-	bin := CreateBinDir(inDir)
-	cppDir := CreateCppDir(inDir)
+	bin := CreateBinDir(*inDir)
+	cppDir := CreateCppDir(*inDir)
 
-	sd := New(inDir, bin, cppDir)
-	sd.Exec(compiler, student, q)
+	sd := New(*inDir, bin, cppDir, *source)
+	sd.Exec(*compiler, *student, *q, *times)
 
 	//
 
