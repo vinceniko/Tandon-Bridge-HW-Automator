@@ -16,13 +16,13 @@ import (
 
 // StudentDir represents the hw directory
 type StudentDir struct {
-	Path   string
-	CppDir string
-	BinDir string // Path is the main working directory
+	Path   string // master dir where hws are located
+	CppDir string // where the student cpp files are stored
+	BinDir string // where the binaries produced from the cpps are stored
 	HWs    []*HW
-	Next   chan *HW
-	Close  chan struct{}
-	Source string
+	Next   chan *HW      // once built send over channel to "running" goroutine
+	Close  chan struct{} // closed after no more hws are left to build and run
+	Source string        // config var for changing behavior of dir walk
 }
 
 // HW has fields for accessing HW for building and running
@@ -44,7 +44,7 @@ func New(inDir, bin, cppDir, source string) *StudentDir {
 	return &sd
 }
 
-// Exec runs and builds
+// Exec finds, runs, and builds
 func (sd *StudentDir) Exec(compiler, startStudent, q string, times int) {
 	var err error
 
@@ -195,7 +195,7 @@ func (hw *HW) RunIt(bin string) {
 	hw.Run.Stderr = os.Stderr
 	hw.Run.Stdin = pf
 	if err := hw.Run.Run(); err != nil {
-		fmt.Printf("Error Running %s; Err:%s", hw.Name, err) // TODO: save files with runtime erros in a list
+		fmt.Printf("\nError Running %s; Err:%s\n", hw.Name, err)
 	}
 }
 
@@ -240,14 +240,6 @@ func GetNewLine() {
 }
 
 func main() {
-	// default vars
-	// var (
-	// 	inDir    = "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/HW5/mine/Q6_accelerated"
-	// 	compiler = "g++"
-	// 	q        = "q6"
-	// 	student  = "mw"
-	// 	source   = "gradescope"
-	// )
 	var (
 		inDir    = flag.String("inDir", "", "Dir with the student files")
 		compiler = flag.String("compiler", "g++", "Compiler Command")
@@ -259,7 +251,7 @@ func main() {
 	flag.Parse()
 	for _, required := range []*string{inDir} {
 		if *required == "" {
-			log.Fatalln("Var must be set")
+			fmt.Println("Error: A Required Var Must Be set")
 		}
 	}
 
