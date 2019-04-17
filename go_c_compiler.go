@@ -270,7 +270,7 @@ func main() {
 		student  = flag.String("student", "", "Student to begin iteration with")
 		source   = flag.String("source", "gradescope", "Student files download source")
 		times    = flag.Int("times", 1, "Times to execute each program")
-		seq      = flag.Bool("seq", false, "Whether to build sequentially")
+		seq      = flag.Bool("seq", false, "Whether to build only after finished running previous program")
 		// args = flag.String("")
 	)
 	flag.Parse()
