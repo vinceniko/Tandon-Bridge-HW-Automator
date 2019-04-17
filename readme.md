@@ -14,6 +14,11 @@ It is written in Golang and uses concurrency to run the code synchronously while
   * kill unresponse running processes through stdin by using an escape character without killing the go process
 * Start the build and run processes from a chosen student (ie. from somewhere other than the beginning of the list of students)
 * Concurrent building and running
+* Choice of whether to build synchronously or only after finished running the previous program (allows the grader to edit the next program to be run)
+
+## Requirements
+
+* Submissions must be in their own subdirectory of the root project directory
 
 ## TODO
 
