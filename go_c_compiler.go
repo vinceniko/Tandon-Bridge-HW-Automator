@@ -19,8 +19,9 @@ type StudentDir struct {
 	Path   string // master dir where hws are located
 	CppDir string // where the student cpp files are stored
 	BinDir string // where the binaries produced from the cpps are stored
-	HWs    []*HW
-	Next   chan *HW      // once built send over channel to "running" goroutine
+	HWs    HWs
+	Next   chan *HW // once built send over channel to "running" goroutine
+	Seq    chan struct{}
 	Close  chan struct{} // closed after no more hws are left to build and run
 	Source string        // config var for changing behavior of dir walk
 }
@@ -34,24 +35,40 @@ type HW struct {
 	Run       *exec.Cmd
 }
 
+// HWs is a slice of HW
+type HWs []*HW
+
 // New inits the StudentDir
-func New(inDir, bin, cppDir, source string) *StudentDir {
+func New(inDir, bin, cppDir, source string, seq bool) *StudentDir {
 	sd := StudentDir{Path: inDir, BinDir: bin, CppDir: cppDir, Source: source}
 	sd.HWs = make([]*HW, 0)
 	sd.Next = make(chan *HW)
+	if seq {
+		sd.Seq = make(chan struct{}, 1)
+		sd.Seq <- struct{}{}
+	}
 	sd.Close = make(chan struct{})
 
 	return &sd
 }
 
+// WriteToHWChan writes HW chan
+func (sd StudentDir) WriteToHWChan(hw *HW) {
+	sd.Next <- hw
+}
+
 // Exec finds, runs, and builds
-func (sd *StudentDir) Exec(compiler, startStudent, q string, times int) {
+func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...string) {
 	var err error
 
 	go func() { // build producer
 		err = filepath.Walk(sd.Path, func(currPath string, info os.FileInfo, err error) error {
 			switch sd.Source {
 			case "nyuclasses":
+				if currPath == sd.BinDir || currPath == sd.CppDir {
+					return filepath.SkipDir
+				}
+
 				foundDir := ""
 				if startStudent != "" && foundDir == "" { // begin here
 					dirs, err := ioutil.ReadDir(sd.Path)
@@ -79,24 +96,23 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int) {
 				if currPath == sd.BinDir || currPath == sd.CppDir {
 					return filepath.SkipDir
 				}
+
+				// general matcher
+				if matchedFile := strings.Contains(info.Name(), startStudent); startStudent != "" && !matchedFile {
+					return nil
+				} else if matchedFile {
+					startStudent = ""
+				}
 			}
 
-			// general matcher
-			if matchedFile := strings.Contains(info.Name(), startStudent); startStudent != "" && !matchedFile {
-				return nil
-			} else if matchedFile {
-				startStudent = ""
-			}
-
-			if q != "" {
+			if q != "" { // if question specified
 				if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
 					hw := &HW{CppFile: currPath, Name: info.Name()}
 					sd.HWs = append(sd.HWs, hw)
 
-					hw.BuildIt(compiler, sd.Path, sd.BinDir, sd.CppDir)
+					hw.BuildIt(compiler, *sd)
 
-					sd.Next <- hw // produce builds
-
+					sd.WriteToHWChan(hw)
 					return filepath.SkipDir
 				}
 
@@ -105,10 +121,9 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int) {
 				hw := &HW{CppFile: currPath, Name: info.Name()}
 				sd.HWs = append(sd.HWs, hw)
 
-				hw.BuildIt(compiler, sd.Path, sd.BinDir, sd.CppDir)
+				hw.BuildIt(compiler, *sd)
 
-				sd.Next <- hw // produce builds
-
+				sd.WriteToHWChan(hw)
 				return filepath.SkipDir
 			}
 
@@ -127,7 +142,10 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int) {
 			fmt.Println("\n" + (*hw).Name)
 
 			for i := 0; i < times; i++ {
-				hw.RunIt(sd.BinDir)
+				hw.RunIt(*sd)
+			}
+			if sd.Seq != nil {
+				sd.Seq <- struct{}{}
 			}
 
 			fmt.Println()
@@ -158,15 +176,20 @@ func CopyCpp(hw *HW, cppDir string) {
 }
 
 // BuildIt builds the cpp file located in the hw directory
-func (hw *HW) BuildIt(compiler, inDir, bin, cppDir string) {
-	hw.BuildFile = path.Join(bin, strings.TrimSuffix(hw.Name, ".cpp"))
+func (hw *HW) BuildIt(compiler string, sd StudentDir) {
+	if sd.Seq != nil {
+		select {
+		case <-sd.Seq:
+		}
+	}
+	hw.BuildFile = path.Join(sd.BinDir, strings.TrimSuffix(hw.Name, ".cpp"))
 	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
-	hw.Build.Dir = inDir
+	hw.Build.Dir = sd.Path
 	if err := hw.Build.Run(); err != nil {
 		fmt.Printf("Error Building %s; Err:%s\n", hw.Name, err) // TODO: save failed to compile files in a list
 	}
 
-	go CopyCpp(hw, cppDir) // run in goroutine to prevent i/o delay
+	go CopyCpp(hw, sd.CppDir) // run in goroutine to prevent i/o delay
 }
 
 // ProcReadForwarder is used to forward read bytes to the intended reader unless it is a kill command such as 'q', which kills the underlying process
@@ -187,8 +210,8 @@ func (pf ProcReadForwarder) Read(p []byte) (n int, err error) {
 }
 
 // RunIt runs the binary in bin that was created by build it
-func (hw *HW) RunIt(bin string) {
-	hw.Run = exec.Command(hw.BuildFile)
+func (hw *HW) RunIt(sd StudentDir, args ...string) {
+	hw.Run = exec.Command(hw.BuildFile, args...)
 	hw.Run.Dir = hw.Build.Dir
 	pf := ProcReadForwarder{'q', &hw.Run.Process, os.Stdin}
 	hw.Run.Stdout = os.Stdout
@@ -247,6 +270,8 @@ func main() {
 		student  = flag.String("student", "", "Student to begin iteration with")
 		source   = flag.String("source", "gradescope", "Student files download source")
 		times    = flag.Int("times", 1, "Times to execute each program")
+		seq      = flag.Bool("seq", false, "Whether to build sequentially")
+		// args = flag.String("")
 	)
 	flag.Parse()
 	for _, required := range []*string{inDir} {
@@ -258,8 +283,8 @@ func main() {
 	bin := CreateBinDir(*inDir)
 	cppDir := CreateCppDir(*inDir)
 
-	sd := New(*inDir, bin, cppDir, *source)
-	sd.Exec(*compiler, *student, *q, *times)
+	sd := New(*inDir, bin, cppDir, *source, *seq)
+	sd.Exec(*compiler, *student, *q, *times, "--std=c++11")
 
 	//
 
