@@ -110,7 +110,7 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 					hw := &HW{CppFile: currPath, Name: info.Name()}
 					sd.HWs = append(sd.HWs, hw)
 
-					hw.BuildIt(compiler, *sd)
+					hw.BuildIt(compiler, *sd, args...)
 
 					sd.WriteToHWChan(hw)
 					return filepath.SkipDir
@@ -121,7 +121,7 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 				hw := &HW{CppFile: currPath, Name: info.Name()}
 				sd.HWs = append(sd.HWs, hw)
 
-				hw.BuildIt(compiler, *sd)
+				hw.BuildIt(compiler, *sd, args...)
 
 				sd.WriteToHWChan(hw)
 				return filepath.SkipDir
@@ -176,14 +176,18 @@ func CopyCpp(hw *HW, cppDir string) {
 }
 
 // BuildIt builds the cpp file located in the hw directory
-func (hw *HW) BuildIt(compiler string, sd StudentDir) {
+func (hw *HW) BuildIt(compiler string, sd StudentDir, args ...string) {
+	hw.BuildFile = path.Join(sd.BinDir, strings.TrimSuffix(hw.Name, ".cpp"))
+
+	allArgs := []string{hw.CppFile, "-o", hw.BuildFile}
+	allArgs = append(allArgs, args...)
 	if sd.Seq != nil {
 		select {
 		case <-sd.Seq:
 		}
 	}
-	hw.BuildFile = path.Join(sd.BinDir, strings.TrimSuffix(hw.Name, ".cpp"))
-	hw.Build = exec.Command(compiler, hw.CppFile, "-o", hw.BuildFile)
+
+	hw.Build = exec.Command(compiler, allArgs...)
 	hw.Build.Dir = sd.Path
 	if err := hw.Build.Run(); err != nil {
 		fmt.Printf("Error Building %s; Err:%s\n", hw.Name, err) // TODO: save failed to compile files in a list
@@ -284,7 +288,7 @@ func main() {
 	cppDir := CreateCppDir(*inDir)
 
 	sd := New(*inDir, bin, cppDir, *source, *seq)
-	sd.Exec(*compiler, *student, *q, *times, "--std=c++11")
+	sd.Exec(*compiler, *student, *q, *times, "-std=c++11")
 
 	//
 
