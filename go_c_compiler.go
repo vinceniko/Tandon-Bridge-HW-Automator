@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -63,8 +64,9 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 
 	go func() { // build producer
 		err = filepath.Walk(sd.Path, func(currPath string, info os.FileInfo, err error) error {
+			loweredFName := strings.ToLower(info.Name())
 			switch sd.Source {
-			case "nyuclasses":
+			case "nyuclasses": // obsolete with move to Gradescope
 				if currPath == sd.BinDir || currPath == sd.CppDir {
 					return filepath.SkipDir
 				}
@@ -106,7 +108,7 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 			}
 
 			if q != "" { // if question specified
-				if strings.Contains(info.Name(), q) && strings.Contains(info.Name(), "_") && path.Ext(info.Name()) == ".cpp" {
+				if strings.Contains(loweredFName, q) {
 					hw := &HW{CppFile: currPath, Name: info.Name()}
 					sd.HWs = append(sd.HWs, hw)
 
@@ -117,7 +119,7 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 				}
 
 				return nil // not the right file
-			} else if path.Ext(info.Name()) == ".cpp" {
+			} else if path.Ext(loweredFName) == ".cpp" { // build all cpp files if q not specified
 				hw := &HW{CppFile: currPath, Name: info.Name()}
 				sd.HWs = append(sd.HWs, hw)
 
@@ -142,7 +144,9 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 			fmt.Println("\n" + (*hw).Name)
 
 			for i := 0; i < times; i++ {
-				hw.RunIt(*sd)
+				if err := hw.RunIt(*sd); err != nil {
+					break
+				}
 			}
 			if sd.Seq != nil {
 				sd.Seq <- struct{}{}
@@ -198,32 +202,58 @@ func (hw *HW) BuildIt(compiler string, sd StudentDir, args ...string) {
 
 // ProcReadForwarder is used to forward read bytes to the intended reader unless it is a kill command such as 'q', which kills the underlying process
 type ProcReadForwarder struct {
-	KillChar byte
-	Proc     **os.Process // a ptr to the field in exec.Command which points to a Process; since the field gets populated after creating PF
-	In       io.Reader    // the reading source we forward to
+	KillChar    byte
+	RestartChar byte
+
+	Cmd *exec.Cmd // a ptr to exec.Cmd
+	In  io.Reader // the reading source we forward to
+
+	err error // stores a response to the command inputs
 }
+
+var errRestart = errors.New("Restart Proc")
 
 /// Read allows ProcReadForwarder to implement the Reader interface
 // it is used to scan for a escape character which kills the running process without killing the go process
 // all other scanned bytes are forwarded to the internal reader as normal
-func (pf ProcReadForwarder) Read(p []byte) (n int, err error) {
+func (pf *ProcReadForwarder) Read(p []byte) (n int, err error) {
 	if p[0] == pf.KillChar && p[1] == 10 { // if the bytes read == 'q'. 10 is the null character
-		return 0, (*pf.Proc).Kill()
+		pf.err = pf.Cmd.Process.Kill()
+
+		return 0, pf.err
+	} else if p[0] == pf.RestartChar && p[1] == 10 { // if the bytes read == 'q'. 10 is the null character
+		pf.Cmd.Process.Kill()
+		pf.err = errRestart
+
+		return 0, pf.err
 	}
 	return pf.In.Read(p) // forward to the internal Reader
 }
 
-// RunIt runs the binary in bin that was created by build it
-func (hw *HW) RunIt(sd StudentDir, args ...string) {
-	hw.Run = exec.Command(hw.BuildFile, args...)
-	hw.Run.Dir = hw.Build.Dir
-	pf := ProcReadForwarder{'q', &hw.Run.Process, os.Stdin}
-	hw.Run.Stdout = os.Stdout
-	hw.Run.Stderr = os.Stderr
-	hw.Run.Stdin = pf
-	if err := hw.Run.Run(); err != nil {
-		fmt.Printf("\nError Running %s; Err:%s\n", hw.Name, err)
+// RunIt runs the binary in bin that was created by BuildIt
+func (hw *HW) RunIt(sd StudentDir) error {
+	var run func() error
+	run = func() error {
+		hw.Run = exec.Command(hw.BuildFile)
+		hw.Run.Dir = hw.Build.Dir
+		pf := ProcReadForwarder{'q', 'r', hw.Run, os.Stdin, nil}
+		hw.Run.Stdout = os.Stdout
+		hw.Run.Stderr = os.Stderr
+		hw.Run.Stdin = &pf
+
+		if err := hw.Run.Run(); err != nil {
+			fmt.Printf("\nError Running %s; Err:%s\n", hw.Name, pf.err)
+			if errors.Is(pf.err, errRestart) {
+				run()
+			} else {
+				return err
+			}
+		}
+
+		return nil
 	}
+
+	return run()
 }
 
 // CreateBinDir creates the binary directory in the folder where the hws are located if it isnt already there
@@ -288,7 +318,7 @@ func main() {
 	cppDir := CreateCppDir(*inDir)
 
 	sd := New(*inDir, bin, cppDir, *source, *seq)
-	sd.Exec(*compiler, *student, *q, *times, "-std=c++11")
+	sd.Exec(*compiler, *student, *q, *times, "-std=c++17")
 
 	//
 
