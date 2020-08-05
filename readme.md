@@ -9,23 +9,22 @@ It is written in Golang and uses concurrency to run the code synchronously while
 * CLI integration
 * Walk the "Download All" directory from NYU Clases to find the chosen student cpp hw
 * Build the HW and save the binary in a subdir
-* Copy cpp files into a subdir (will be removed if texteditor feature is implemented)
+* Copy cpp files into a subdir (to make them easier to find; remove maybe)
 * Run the binary
-  * kill unresponse running processes through stdin by using an escape character without killing the go process
+  * Kill an unresponsive running processes through stdin by using an escape character without killing the entire Go process
 * Start the build and run processes from a chosen student (ie. from somewhere other than the beginning of the list of students)
 * Concurrent building and running
-* Choice of whether to build synchronously or only after finished running the previous program (allows the grader to edit the next program to be run)
+* Choice of whether to build synchronously or only after finished running the previous program (allows the grader to edit the next program to be run before building it)
+
+## Future Features
+
+* Interactive commands
+* Interactively step forwards and backwards through submissions
+* Interactively restart execution
 
 ## Requirements
 
+* tester.py
+  * pexp
+* Golang
 * Submissions must be in their own subdirectory of the root project directory
-
-## TODO
-
-* Match both 'q' and 'Q' in the file name (from NYU Classes; deprecated at this point)
-* Build and run multiple questions per student (from NYU Classes; deprecated at this point)
-* Open texteditor with student's code while running
-
-### Maybe
-
-* Record files with build errors in a list
