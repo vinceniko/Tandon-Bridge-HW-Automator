@@ -1,1 +1,7 @@
-go run go_c_compiler.go --inDir "/Users/vincentscomputer/Library/Mobile Documents/com~apple~CloudDocs/Tandon/TA/HW10/HW10 Extended Submissions/Submissions" --student dt1854 --seq true --compiler clang
+go_c_compiler:
+go run go_c_compiler.go --inDir "/Submissions" --student dt1854 --seq true --compiler clang
+
+tester.py:
+python3 <Dir with Submissions Sub Dir>/../../c_compiler/tester.py "<args for tester.py>" "<args for go_c_compiler.go>"
+example:
+python3 ../../c_compiler/tester.py "-" "-q q5"
