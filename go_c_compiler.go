@@ -108,7 +108,7 @@ func (sd *StudentDir) Exec(compiler, startStudent, q string, times int, args ...
 			}
 
 			if q != "" { // if question specified
-				if strings.Contains(loweredFName, q) {
+				if strings.Contains(loweredFName, q) && path.Ext(info.Name()) == ".cpp" {
 					hw := &HW{CppFile: currPath, Name: info.Name()}
 					sd.HWs = append(sd.HWs, hw)
 
